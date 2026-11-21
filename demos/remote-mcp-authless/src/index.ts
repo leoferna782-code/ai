@@ -1,4 +1,5 @@
 
+import { env } from "cloudflare:workers";
 import { McpServer } from "@modelcontextprotocol/server";
 import { createMcpHandler } from "agents/mcp/server";
 import { z } from "zod";
@@ -6,44 +7,29 @@ import { z } from "zod";
 function createServer() {
   const server = new McpServer({
     name: "Video Context Assistant",
-    version: "1.0.0",
+    version: "1.1.0",
   });
 
   server.registerTool(
     "compact_text",
     {
       description:
-        "Remove linhas vazias e duplicadas e organiza um texto para economizar espaço.",
+        "Compacta textos removendo linhas vazias e duplicadas. Use quando receber textos longos ou repetitivos para reduzir conteúdo desnecessário.",
       inputSchema: z.object({
         text: z.string(),
         max_characters: z.number().int().min(100).max(20000).default(6000),
       }),
     },
     async ({ text, max_characters }) => {
-      const lines = text
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean);
+      const lines = text.split("\n").map(line => line.trim()).filter(Boolean);
+      let result = [...new Set(lines)].join("\n");
 
-      const uniqueLines = [...new Set(lines)];
-      let result = uniqueLines.join("\n");
-
-      const truncated = result.length > max_characters;
-
-      if (truncated) {
-        result =
-          result.slice(0, max_characters) +
+      if (result.length > max_characters) {
+        result = result.slice(0, max_characters) +
           "\n[Texto cortado: limite de caracteres atingido.]";
       }
 
-      return {
-        content: [
-          {
-            type: "text",
-            text: result,
-          },
-        ],
-      };
+      return { content: [{ type: "text", text: result }] };
     }
   );
 
@@ -51,7 +37,7 @@ function createServer() {
     "prepare_handoff",
     {
       description:
-        "Cria um resumo organizado para continuar um projeto de vídeos em outra conversa.",
+        "Cria um resumo organizado para continuar um projeto em outra conversa.",
       inputSchema: z.object({
         project: z.string(),
         rules: z.string(),
@@ -64,66 +50,84 @@ function createServer() {
     async (data) => {
       const result = [
         "# RESUMO DE CONTINUIDADE",
-        "",
-        "## PROJETO",
-        data.project,
-        "",
-        "## REGRAS IMPORTANTES",
-        data.rules,
-        "",
-        "## IDENTIDADE VISUAL",
-        data.visual_style,
-        "",
-        "## DECISÕES JÁ TOMADAS",
-        data.decisions,
-        "",
-        "## TAREFA ATUAL",
-        data.current_task,
-        "",
-        "## PRÓXIMO PASSO",
-        data.next_step,
-        "",
-        "INSTRUÇÃO: Continue o projeto respeitando as regras e decisões acima. Não refaça etapas já concluídas."
-      ].join("\n");
+        "## PROJETO", data.project,
+        "## REGRAS IMPORTANTES", data.rules,
+        "## IDENTIDADE VISUAL", data.visual_style,
+        "## DECISÕES JÁ TOMADAS", data.decisions,
+        "## TAREFA ATUAL", data.current_task,
+        "## PRÓXIMO PASSO", data.next_step,
+        "Continue respeitando as regras e decisões acima."
+      ].join("\n\n");
 
-      return {
-        content: [
-          {
-            type: "text",
-            text: result,
-          },
-        ],
-      };
+      return { content: [{ type: "text", text: result }] };
     }
   );
 
   server.registerTool(
     "count_text",
     {
-      description:
-        "Conta palavras, caracteres e linhas de um texto.",
-      inputSchema: z.object({
-        text: z.string(),
-      }),
+      description: "Conta palavras, caracteres e linhas de um texto.",
+      inputSchema: z.object({ text: z.string() }),
     },
     async ({ text }) => {
-      const words = text.trim()
-        ? text.trim().split(/\s+/).length
-        : 0;
-
-      const result = [
-        `Palavras: ${words}`,
-        `Caracteres: ${text.length}`,
-        `Linhas: ${text.split("\n").length}`,
-      ].join("\n");
+      const words = text.trim() ? text.trim().split(/\s+/).length : 0;
 
       return {
-        content: [
-          {
-            type: "text",
-            text: result,
-          },
-        ],
+        content: [{
+          type: "text",
+          text: [
+            `Palavras: ${words}`,
+            `Caracteres: ${text.length}`,
+            `Linhas: ${text.split("\n").length}`,
+          ].join("\n"),
+        }],
+      };
+    }
+  );
+
+  server.registerTool(
+    "save_memory",
+    {
+      description:
+        "Salva informações importantes e duradouras do projeto na memória persistente. Use para guardar regras do canal, identidade visual, preferências e decisões aprovadas. Não salve senhas ou dados secretos.",
+      inputSchema: z.object({
+        key: z.string().min(1).max(100),
+        content: z.string().min(1).max(20000),
+      }),
+    },
+    async ({ key, content }) => {
+      await env.VIDEO_MEMORY.put(
+        `project:${key}`,
+        content,
+        { metadata: { updatedAt: new Date().toISOString() } }
+      );
+
+      return {
+        content: [{
+          type: "text",
+          text: `Memória "${key}" salva com sucesso.`,
+        }],
+      };
+    }
+  );
+
+  server.registerTool(
+    "load_memory",
+    {
+      description:
+        "Recupera informações da memória persistente. Consulte no início de novos trabalhos para recuperar regras, identidade visual e decisões anteriores do projeto.",
+      inputSchema: z.object({
+        key: z.string().min(1).max(100),
+      }),
+    },
+    async ({ key }) => {
+      const content = await env.VIDEO_MEMORY.get(`project:${key}`);
+
+      return {
+        content: [{
+          type: "text",
+          text: content ?? `Nenhuma memória encontrada para "${key}".`,
+        }],
       };
     }
   );
