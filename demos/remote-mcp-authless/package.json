@@ -2,7 +2,7 @@
 {
   "name": "remote-mcp-server-authless",
   "version": "0.0.0",
-"description": "Video Context Assistant",
+  "description": "Video Context Assistant",
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",
