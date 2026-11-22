@@ -336,13 +336,16 @@ function createServer() {
       const baseUrl = bindings.HEADROOM_PROXY_URL?.replace(/\/+$/, "");
       const token = bindings.HEADROOM_PROXY_TOKEN;
 
+      // Diagnóstico individual das variáveis
       if (!baseUrl || !token) {
         return {
           isError: true,
           content: [{
             type: "text" as const,
             text:
-              "Erro: HEADROOM_PROXY_URL ou HEADROOM_PROXY_TOKEN não configurado no Cloudflare.",
+              "DIAGNÓSTICO HEADROOM:\n" +
+              `HEADROOM_PROXY_URL: ${baseUrl ? "ENCONTRADA" : "AUSENTE"}\n` +
+              `HEADROOM_PROXY_TOKEN: ${token ? "ENCONTRADO" : "AUSENTE"}`,
           }],
         };
       }
