@@ -315,7 +315,7 @@ function createServer() {
     "headroom_compress",
     {
       description:
-        "Envia mensagens ao Headroom Proxy para tentar comprimi-las. Retorna as mensagens resultantes, tokens antes e depois, economia e transformações aplicadas. Só comprime o conteúdo enviado explicitamente nesta chamada; não altera automaticamente o histórico interno da conversa.",
+        "Envia mensagens ao Headroom Proxy para compressão. Retorna mensagens resultantes, estatísticas e transformações aplicadas. Só processa o conteúdo enviado explicitamente nesta chamada; não altera automaticamente o histórico interno da conversa.",
       inputSchema: z.object({
         messages: z.array(
           z.object({
@@ -357,9 +357,12 @@ function createServer() {
           body: JSON.stringify({
             messages,
             model,
-            ...(target_ratio !== undefined
-              ? { config: { target_ratio } }
-              : {}),
+            config: {
+              mode: "lossy_inline",
+              compress_user_messages: true,
+              target_ratio: target_ratio ?? 0.5,
+              protect_recent: 0,
+            },
           }),
         });
 
@@ -389,6 +392,7 @@ function createServer() {
               tokens_saved: result.tokens_saved,
               compression_ratio: result.compression_ratio,
               transforms_applied: result.transforms_applied,
+              transforms_summary: result.transforms_summary ?? null,
               compression_skipped: result.compression_skipped ?? false,
               skip_reason: result.skip_reason ?? null,
             }, null, 2),
