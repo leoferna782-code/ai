@@ -14,10 +14,10 @@ function normalizeText(value: string): string {
 function createServer() {
   const server = new McpServer({
     name: "Video Context Assistant",
-    version: "1.2.0",
+    version: "1.3.0",
   });
 
-  // Compactação de textos
+  // Compactação simples de textos
   server.registerTool(
     "compact_text",
     {
@@ -304,6 +304,105 @@ function createServer() {
             text:
               "DIAGNÓSTICO: FALHOU\n" +
               `Erro: ${error instanceof Error ? error.message : String(error)}`,
+          }],
+        };
+      }
+    }
+  );
+
+  // Compressão real usando o Headroom Proxy
+  server.registerTool(
+    "headroom_compress",
+    {
+      description:
+        "Envia mensagens ao Headroom Proxy para tentar comprimi-las. Retorna as mensagens resultantes, tokens antes e depois, economia e transformações aplicadas. Só comprime o conteúdo enviado explicitamente nesta chamada; não altera automaticamente o histórico interno da conversa.",
+      inputSchema: z.object({
+        messages: z.array(
+          z.object({
+            role: z.string(),
+            content: z.unknown(),
+          }).passthrough()
+        ).min(1),
+        model: z.string().default("claude-sonnet-4-6"),
+        target_ratio: z.number().min(0.1).max(1).optional(),
+      }),
+    },
+    async ({ messages, model, target_ratio }) => {
+      const bindings = env as typeof env & {
+        HEADROOM_PROXY_URL?: string;
+        HEADROOM_PROXY_TOKEN?: string;
+      };
+
+      const baseUrl = bindings.HEADROOM_PROXY_URL?.replace(/\/+$/, "");
+      const token = bindings.HEADROOM_PROXY_TOKEN;
+
+      if (!baseUrl || !token) {
+        return {
+          isError: true,
+          content: [{
+            type: "text" as const,
+            text:
+              "Erro: HEADROOM_PROXY_URL ou HEADROOM_PROXY_TOKEN não configurado no Cloudflare.",
+          }],
+        };
+      }
+
+      try {
+        const response = await fetch(`${baseUrl}/v1/compress`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Headroom-Proxy-Token": token,
+          },
+          body: JSON.stringify({
+            messages,
+            model,
+            ...(target_ratio !== undefined
+              ? { config: { target_ratio } }
+              : {}),
+          }),
+        });
+
+        const responseText = await response.text();
+
+        if (!response.ok) {
+          return {
+            isError: true,
+            content: [{
+              type: "text" as const,
+              text:
+                `Headroom retornou HTTP ${response.status}: ` +
+                responseText.slice(0, 3000),
+            }],
+          };
+        }
+
+        const result = JSON.parse(responseText);
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({
+              messages: result.messages,
+              tokens_before: result.tokens_before,
+              tokens_after: result.tokens_after,
+              tokens_saved: result.tokens_saved,
+              compression_ratio: result.compression_ratio,
+              transforms_applied: result.transforms_applied,
+              compression_skipped: result.compression_skipped ?? false,
+              skip_reason: result.skip_reason ?? null,
+            }, null, 2),
+          }],
+        };
+      } catch (error) {
+        return {
+          isError: true,
+          content: [{
+            type: "text" as const,
+            text:
+              `Falha ao conectar ao Headroom: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
           }],
         };
       }
